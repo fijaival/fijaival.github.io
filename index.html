@@ -350,6 +350,185 @@
             </div>
           </div>
         </div>
+        <pre>
+          <code>
+            data class Position(val lng: Double, val lat: Double)
+
+class TransFormer {
+
+    data class Vertex(
+        val position: Position,
+        var next: Vertex? = null,
+        var neighbor: Vertex? = null,
+        var intersect: Boolean = false,
+        var entry: Boolean = false,
+        var visited: Boolean = false
+    )
+
+    fun union(polygon1: List<Position>, polygon2: List<Position>): List<Position> {
+        // ステップ1：ポリゴンを頂点リストに変換
+        val subject = buildVertexList(polygon1)
+        val clip = buildVertexList(polygon2)
+
+        // ステップ2：交点を計算し、頂点リストに挿入
+        findIntersections(subject, clip)
+
+        // ステップ3：エントリー/エグジットフラグを設定
+        markEntryExit(subject, clip)
+
+        // ステップ4：新しいポリゴンを構築
+        val result = constructUnion(subject)
+
+        // 始点と終点を同じにする
+        return if (result.first() != result.last()) {
+            result + result.first()
+        } else {
+            result
+        }
+    }
+
+    private fun buildVertexList(polygon: List<Position>): Vertex {
+        val head = Vertex(polygon[0])
+        var prev = head
+        for (i in 1 until polygon.size) {
+            val v = Vertex(polygon[i])
+            prev.next = v
+            prev = v
+        }
+        prev.next = head // 閉じる
+        return head
+    }
+
+    private fun findIntersections(subject: Vertex, clip: Vertex) {
+        var s = subject
+        do {
+            var c = clip
+            do {
+                val intersection = getIntersection(
+                    s.position, s.next!!.position,
+                    c.position, c.next!!.position
+                )
+                if (intersection != null) {
+                    val sIntersect = Vertex(intersection, intersect = true)
+                    val cIntersect = Vertex(intersection, intersect = true)
+                    sIntersect.neighbor = cIntersect
+                    cIntersect.neighbor = sIntersect
+
+                    // 主ポリゴンに交点を挿入
+                    sIntersect.next = s.next
+                    s.next = sIntersect
+                    s = sIntersect
+
+                    // クリップポリゴンに交点を挿入
+                    cIntersect.next = c.next
+                    c.next = cIntersect
+                    c = cIntersect
+                }
+                c = c.next!!
+            } while (c != clip)
+            s = s.next!!
+        } while (s != subject)
+    }
+
+    private fun markEntryExit(subject: Vertex, clip: Vertex) {
+        var isInside = pointInPolygon(subject.position, clip)
+        var s = subject
+        do {
+            if (s.intersect) {
+                s.entry = !isInside
+                isInside = !isInside
+            }
+            s = s.next!!
+        } while (s != subject)
+    }
+
+    private fun constructUnion(subject: Vertex): List<Position> {
+        val result = mutableListOf<Position>()
+        var s = subject
+        do {
+            if (s.intersect && !s.visited) {
+                val positions = mutableListOf<Position>()
+                var current = s
+                var isSubject = true
+                do {
+                    current.visited = true
+                    positions.add(current.position)
+                    if (current.intersect) {
+                        isSubject = !isSubject
+                        current = if (isSubject) current.next!! else current.neighbor!!.next!!
+                    } else {
+                        current = current.next!!
+                    }
+                } while (current != s)
+                result.addAll(positions)
+                break // Unionでは一つのポリゴンだけを取得
+            }
+            s = s.next!!
+        } while (s != subject)
+        return result
+    }
+
+    private fun getIntersection(p1: Position, p2: Position, q1: Position, q2: Position): Position? {
+        val s1_x = p2.lng - p1.lng
+        val s1_y = p2.lat - p1.lat
+        val s2_x = q2.lng - q1.lng
+        val s2_y = q2.lat - q1.lat
+
+        val s = (-s1_y * (p1.lng - q1.lng) + s1_x * (p1.lat - q1.lat)) / (-s2_x * s1_y + s1_x * s2_y)
+        val t = ( s2_x * (p1.lat - q1.lat) - s2_y * (p1.lng - q1.lng)) / (-s2_x * s1_y + s1_x * s2_y)
+
+        if (s >= 0 && s <= 1 && t >= 0 && t <= 1) {
+            // 交点が存在
+            val i_x = p1.lng + (t * s1_x)
+            val i_y = p1.lat + (t * s1_y)
+            return Position(i_x, i_y)
+        }
+        return null // 交点なし
+    }
+
+    private fun pointInPolygon(point: Position, polygon: Vertex): Boolean {
+        var result = false
+        var v = polygon
+        do {
+            val v1 = v.position
+            val v2 = v.next!!.position
+            if (((v1.lat > point.lat) != (v2.lat > point.lat)) &&
+                (point.lng < (v2.lng - v1.lng) * (point.lat - v1.lat) / (v2.lat - v1.lat) + v1.lng)) {
+                result = !result
+            }
+            v = v.next!!
+        } while (v != polygon)
+        return result
+    }
+}
+fun main() {
+  val polygon1 = listOf(
+      Position(0.0, 0.0),
+      Position(2.0, 0.0),
+      Position(2.0, 2.0),
+      Position(0.0, 2.0),
+      Position(0.0, 0.0)
+  )
+
+  val polygon2 = listOf(
+      Position(1.0, 1.0),
+      Position(3.0, 1.0),
+      Position(3.0, 3.0),
+      Position(1.0, 3.0),
+      Position(1.0, 1.0)
+  )
+
+  val transformer = TransFormer()
+  val unionPolygon = transformer.union(polygon1, polygon2)
+
+  println("Union Polygon:")
+  for (pos in unionPolygon) {
+      println("(${pos.lng}, ${pos.lat})")
+  }
+}
+
+          </code>
+        </pre>
       </div>
     </section>
 
