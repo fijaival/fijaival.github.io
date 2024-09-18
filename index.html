@@ -350,169 +350,163 @@
             </div>
           </div>
         </div>
-        <pre>
-          <code>
-            data class Position(val lng: Double, val lat: Double)
+        <pre><code>data class Position(val lng: Double, val lat: Double)
 
-            class TransFormer {
-            
-                data class Vertex(
-                    val position: Position,
-                    var next: Vertex? = null,
-                    var prev: Vertex? = null,
-                    var neighbor: Vertex? = null,
-                    var intersect: Boolean = false,
-                    var entry: Boolean = false,
-                    var alpha: Double = 0.0,
-                    var visited: Boolean = false
-                )
-            
-                fun union(polygon1: List<Position>, polygon2: List<Position>): List<Position> {
-                    // ステップ1：ポリゴンを頂点リストに変換
-                    val subject = buildVertexList(polygon1)
-                    val clip = buildVertexList(polygon2)
-            
-                    // ステップ2：交点を検出し、頂点リストに挿入
-                    findIntersections(subject, clip)
-            
-                    // ステップ3：エントリー/エグジットフラグを設定
-                    markEntryExit(subject, clip)
-            
-                    // ステップ4：ポリゴンを構築
-                    val result = constructUnion(subject)
-            
-                    // 始点と終点を同じにする
-                    return if (result.isNotEmpty() && result.first() != result.last()) {
-                        result + result.first()
-                    } else {
-                        result
-                    }
-                }
-            
-                private fun buildVertexList(polygon: List<Position>): List<Vertex> {
-                    val vertices = polygon.map { Vertex(it) }
-                    val size = vertices.size
-                    for (i in vertices.indices) {
-                        vertices[i].next = vertices[(i + 1) % size]
-                        vertices[i].prev = vertices[(i - 1 + size) % size]
-                    }
-                    return vertices
-                }
-            
-                private fun findIntersections(subject: List<Vertex>, clip: List<Vertex>) {
-                    for (s in subject) {
-                        val s1 = s.position
-                        val s2 = s.next!!.position
-                        for (c in clip) {
-                            val c1 = c.position
-                            val c2 = c.next!!.position
-                            val intersection = getIntersectionPoint(s1, s2, c1, c2)
-                            if (intersection != null) {
-                                val alphaS = getAlpha(s1, s2, intersection)
-                                val alphaC = getAlpha(c1, c2, intersection)
-            
-                                val sIntersect = Vertex(intersection, intersect = true, alpha = alphaS)
-                                val cIntersect = Vertex(intersection, intersect = true, alpha = alphaC)
-            
-                                sIntersect.neighbor = cIntersect
-                                cIntersect.neighbor = sIntersect
-            
-                                insertIntersection(s, sIntersect)
-                                insertIntersection(c, cIntersect)
-                            }
-                        }
-                    }
-                }
-            
-                private fun getIntersectionPoint(p1: Position, p2: Position, q1: Position, q2: Position): Position? {
-                    val denominator = (p2.lng - p1.lng) * (q2.lat - q1.lat) - (p2.lat - p1.lat) * (q2.lng - q1.lng)
-                    if (denominator == 0.0) return null // 平行
-            
-                    val ua = ((q2.lng - q1.lng) * (p1.lat - q1.lat) - (q2.lat - q1.lat) * (p1.lng - q1.lng)) / denominator
-                    val ub = ((p2.lng - p1.lng) * (p1.lat - q1.lat) - (p2.lat - p1.lat) * (p1.lng - q1.lng)) / denominator
-            
-                    if (ua in 0.0..1.0 && ub in 0.0..1.0) {
-                        val x = p1.lng + ua * (p2.lng - p1.lng)
-                        val y = p1.lat + ua * (p2.lat - p1.lat)
-                        return Position(x, y)
-                    }
-                    return null
-                }
-            
-                private fun getAlpha(p1: Position, p2: Position, intersection: Position): Double {
-                    val dx = p2.lng - p1.lng
-                    val dy = p2.lat - p1.lat
-                    if (Math.abs(dx) > Math.abs(dy)) {
-                        return (intersection.lng - p1.lng) / dx
-                    } else {
-                        return (intersection.lat - p1.lat) / dy
-                    }
-                }
-            
-                private fun insertIntersection(vertex: Vertex, intersection: Vertex) {
-                    var current = vertex
-                    while (current.next != vertex && current.next!!.intersect && current.next!!.alpha < intersection.alpha) {
-                        current = current.next!!
-                    }
-                    intersection.next = current.next
-                    intersection.prev = current
-                    current.next!!.prev = intersection
-                    current.next = intersection
-                }
-            
-                private fun markEntryExit(subject: List<Vertex>, clip: List<Vertex>) {
-                    var isInside = pointInPolygon(subject[0].position, clip)
-                    for (vertex in subject) {
-                        if (vertex.intersect) {
-                            vertex.entry = !isInside
-                            isInside = !isInside
-                        }
-                    }
-                }
-            
-                private fun constructUnion(subject: List<Vertex>): List<Position> {
-                    val result = mutableListOf<Position>()
-                    for (vertex in subject) {
-                        if (vertex.intersect && !vertex.visited && vertex.entry) {
-                            val positions = mutableListOf<Position>()
-                            var current = vertex
-                            do {
-                                if (current.visited) break
-                                current.visited = true
-                                positions.add(current.position)
-                                if (current.intersect) {
-                                    current = current.neighbor!!
-                                }
-                                current = current.next!!
-                            } while (current != vertex)
-                            result.addAll(positions)
-                            break // Unionでは一つのポリゴンだけを取得
-                        }
-                    }
-                    return result
-                }
-            
-                private fun pointInPolygon(point: Position, polygon: List<Vertex>): Boolean {
-                    var result = false
-                    var j = polygon.size - 1
-                    for (i in polygon.indices) {
-                        val pi = polygon[i].position
-                        val pj = polygon[j].position
-                        if ((pi.lat > point.lat) != (pj.lat > point.lat) &&
-                            point.lng < (pj.lng - pi.lng) * (point.lat - pi.lat) / (pj.lat - pi.lat) + pi.lng
-                        ) {
-                            result = !result
-                        }
-                        j = i
-                    }
-                    return result
-                }
-            }
-            
-
-
-          </code>
-        </pre>
+          class TransFormer {
+          
+              data class Vertex(
+                  val position: Position,
+                  var next: Vertex? = null,
+                  var prev: Vertex? = null,
+                  var neighbor: Vertex? = null,
+                  var intersect: Boolean = false,
+                  var entry: Boolean = false,
+                  var alpha: Double = 0.0,
+                  var visited: Boolean = false
+              )
+          
+              fun union(polygon1: List&lt;Position&gt;, polygon2: List&lt;Position&gt;): List&lt;Position&gt; {
+                  // ステップ1：ポリゴンを頂点リストに変換
+                  val subject = buildVertexList(polygon1)
+                  val clip = buildVertexList(polygon2)
+          
+                  // ステップ2：交点を検出し、頂点リストに挿入
+                  findIntersections(subject, clip)
+          
+                  // ステップ3：エントリー/エグジットフラグを設定
+                  markEntryExit(subject, clip)
+          
+                  // ステップ4：ポリゴンを構築
+                  val result = constructUnion(subject)
+          
+                  // 始点と終点を同じにする
+                  return if (result.isNotEmpty() &amp;&amp; result.first() != result.last()) {
+                      result + result.first()
+                  } else {
+                      result
+                  }
+              }
+          
+              private fun buildVertexList(polygon: List&lt;Position&gt;): List&lt;Vertex&gt; {
+                  val vertices = polygon.map { Vertex(it) }
+                  val size = vertices.size
+                  for (i in vertices.indices) {
+                      vertices[i].next = vertices[(i + 1) % size]
+                      vertices[i].prev = vertices[(i - 1 + size) % size]
+                  }
+                  return vertices
+              }
+          
+              private fun findIntersections(subject: List&lt;Vertex&gt;, clip: List&lt;Vertex&gt;) {
+                  for (s in subject) {
+                      val s1 = s.position
+                      val s2 = s.next!!.position
+                      for (c in clip) {
+                          val c1 = c.position
+                          val c2 = c.next!!.position
+                          val intersection = getIntersectionPoint(s1, s2, c1, c2)
+                          if (intersection != null) {
+                              val alphaS = getAlpha(s1, s2, intersection)
+                              val alphaC = getAlpha(c1, c2, intersection)
+          
+                              val sIntersect = Vertex(intersection, intersect = true, alpha = alphaS)
+                              val cIntersect = Vertex(intersection, intersect = true, alpha = alphaC)
+          
+                              sIntersect.neighbor = cIntersect
+                              cIntersect.neighbor = sIntersect
+          
+                              insertIntersection(s, sIntersect)
+                              insertIntersection(c, cIntersect)
+                          }
+                      }
+                  }
+              }
+          
+              private fun getIntersectionPoint(p1: Position, p2: Position, q1: Position, q2: Position): Position? {
+                  val denominator = (p2.lng - p1.lng) * (q2.lat - q1.lat) - (p2.lat - p1.lat) * (q2.lng - q1.lng)
+                  if (denominator == 0.0) return null // 平行
+          
+                  val ua = ((q2.lng - q1.lng) * (p1.lat - q1.lat) - (q2.lat - q1.lat) * (p1.lng - q1.lng)) / denominator
+                  val ub = ((p2.lng - p1.lng) * (p1.lat - q1.lat) - (p2.lat - p1.lat) * (p1.lng - q1.lng)) / denominator
+          
+                  if (ua in 0.0..1.0 &amp;&amp; ub in 0.0..1.0) {
+                      val x = p1.lng + ua * (p2.lng - p1.lng)
+                      val y = p1.lat + ua * (p2.lat - p1.lat)
+                      return Position(x, y)
+                  }
+                  return null
+              }
+          
+              private fun getAlpha(p1: Position, p2: Position, intersection: Position): Double {
+                  val dx = p2.lng - p1.lng
+                  val dy = p2.lat - p1.lat
+                  if (Math.abs(dx) &gt; Math.abs(dy)) {
+                      return (intersection.lng - p1.lng) / dx
+                  } else {
+                      return (intersection.lat - p1.lat) / dy
+                  }
+              }
+          
+              private fun insertIntersection(vertex: Vertex, intersection: Vertex) {
+                  var current = vertex
+                  while (current.next != vertex &amp;&amp; current.next!!.intersect &amp;&amp; current.next!!.alpha &lt; intersection.alpha) {
+                      current = current.next!!
+                  }
+                  intersection.next = current.next
+                  intersection.prev = current
+                  current.next!!.prev = intersection
+                  current.next = intersection
+              }
+          
+              private fun markEntryExit(subject: List&lt;Vertex&gt;, clip: List&lt;Vertex&gt;) {
+                  var isInside = pointInPolygon(subject[0].position, clip)
+                  for (vertex in subject) {
+                      if (vertex.intersect) {
+                          vertex.entry = !isInside
+                          isInside = !isInside
+                      }
+                  }
+              }
+          
+              private fun constructUnion(subject: List&lt;Vertex&gt;): List&lt;Position&gt; {
+                  val result = mutableListOf&lt;Position&gt;()
+                  for (vertex in subject) {
+                      if (vertex.intersect &amp;&amp; !vertex.visited &amp;&amp; vertex.entry) {
+                          val positions = mutableListOf&lt;Position&gt;()
+                          var current = vertex
+                          do {
+                              if (current.visited) break
+                              current.visited = true
+                              positions.add(current.position)
+                              if (current.intersect) {
+                                  current = current.neighbor!!
+                              }
+                              current = current.next!!
+                          } while (current != vertex)
+                          result.addAll(positions)
+                          break // Unionでは一つのポリゴンだけを取得
+                      }
+                  }
+                  return result
+              }
+          
+              private fun pointInPolygon(point: Position, polygon: List&lt;Vertex&gt;): Boolean {
+                  var result = false
+                  var j = polygon.size - 1
+                  for (i in polygon.indices) {
+                      val pi = polygon[i].position
+                      val pj = polygon[j].position
+                      if ((pi.lat &gt; point.lat) != (pj.lat &gt; point.lat) &amp;&amp;
+                          point.lng &lt; (pj.lng - pi.lng) * (point.lat - pi.lat) / (pj.lat - pi.lat) + pi.lng
+                      ) {
+                          result = !result
+                      }
+                      j = i
+                  }
+                  return result
+              }
+          }
+          </code></pre>
       </div>
     </section>
 
