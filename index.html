@@ -507,6 +507,51 @@
               }
           }
           </code></pre>
+          <pre><code>fun main() {
+            val polygon1 = listOf(
+                Position(0.0, 0.0),
+                Position(1.0, 0.0),
+                Position(1.0, 1.0),
+                Position(0.0, 1.0),
+                Position(0.0, 0.0)
+            )
+        
+            val polygon2 = listOf(
+                Position(0.5, 0.5),
+                Position(1.5, 0.5),
+                Position(1.5, 1.5),
+                Position(0.5, 1.5),
+                Position(0.5, 0.5)
+            )
+        
+            val expected = listOf(
+                Position(0.0, 0.0),
+                Position(1.0, 0.0),
+                Position(1.0, 0.5),
+                Position(1.5, 0.5),
+                Position(1.5, 1.5),
+                Position(0.5, 1.5),
+                Position(0.5, 1.0),
+                Position(0.0, 1.0),
+                Position(0.0, 0.0)
+            )
+        
+            val transformer = TransFormer()
+            val unionPolygon = transformer.union(polygon1, polygon2)
+        
+            println(&quot;Union Polygon:&quot;)
+            for (pos in unionPolygon) {
+                println(&quot;(${pos.lng}, ${pos.lat})&quot;)
+            }
+        
+            // 結果が期待値と一致するか確認
+            val isSuccess = unionPolygon.size == expected.size &amp;&amp; unionPolygon.zip(expected).all { (a, b) -&gt;
+                Math.abs(a.lng - b.lng) &lt; 1e-6 &amp;&amp; Math.abs(a.lat - b.lat) &lt; 1e-6
+            }
+        
+            println(&quot;Test ${if (isSuccess) &quot;Passed&quot; else &quot;Failed&quot;}&quot;)
+        }
+        </code></pre>
       </div>
     </section>
 
