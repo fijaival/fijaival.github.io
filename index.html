@@ -350,6 +350,54 @@
             </div>
           </div>
         </div>
+        <pre><code>data class Point(val x: Double, val y: Double)
+
+          fun calculatePolygonCentroid(vertices: List&lt;Point&gt;): Point {
+              val n = vertices.size
+              if (n &lt; 3) {
+                  throw IllegalArgumentException(&quot;多角形は少なくとも3つの頂点が必要です&quot;)
+              }
+          
+              var signedArea = 0.0
+              var centroidX = 0.0
+              var centroidY = 0.0
+          
+              for (i in 0 until n) {
+                  val x0 = vertices[i].x
+                  val y0 = vertices[i].y
+                  val x1 = vertices[(i + 1) % n].x
+                  val y1 = vertices[(i + 1) % n].y
+          
+                  val a = x0 * y1 - x1 * y0
+                  signedArea += a
+                  centroidX += (x0 + x1) * a
+                  centroidY += (y0 + y1) * a
+              }
+          
+              signedArea *= 0.5
+              if (signedArea == 0.0) {
+                  throw IllegalArgumentException(&quot;多角形の面積がゼロです&quot;)
+              }
+          
+              centroidX /= (6.0 * signedArea)
+              centroidY /= (6.0 * signedArea)
+          
+              return Point(centroidX, centroidY)
+          }
+          
+          fun main() {
+              val vertices = listOf(
+                  Point(0.0, 0.0),
+                  Point(4.0, 0.0),
+                  Point(4.0, 3.0),
+                  Point(0.0, 3.0)
+              )
+          
+              val centroid = calculatePolygonCentroid(vertices)
+              println(&quot;重心の座標: (${centroid.x}, ${centroid.y})&quot;)
+          }
+          </code></pre>
+          <p>https://mathworld.wolfram.com/PolygonCentroid.html</p>
       </div>
     </section>
 
