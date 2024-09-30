@@ -350,53 +350,185 @@
             </div>
           </div>
         </div>
-        <pre><code>data class Point(val x: Double, val y: Double)
+        <pre><code>package com.example.coffeeshop.controller
 
-          fun calculatePolygonCentroid(vertices: List&lt;Point&gt;): Point {
-              val n = vertices.size
-              if (n &lt; 3) {
-                  throw IllegalArgumentException(&quot;多角形は少なくとも3つの頂点が必要です&quot;)
+          import com.example.coffeeshop.model.CoffeeShop
+          import com.example.coffeeshop.model.Polygon
+          import com.example.coffeeshop.service.CoffeeShopService
+          import org.springframework.http.ResponseEntity
+          import org.springframework.web.bind.annotation.*
+          
+          @RestController
+          @RequestMapping(&quot;/api&quot;)
+          class CoffeeShopController(
+              private val coffeeShopService: CoffeeShopService
+          ) {
+          
+              @PostMapping(&quot;/coffeeshops&quot;)
+              fun getCoffeeShops(@RequestBody polygon: Polygon): ResponseEntity&lt;List&lt;CoffeeShop&gt;&gt; {
+                  val coffeeShops = coffeeShopService.findCoffeeShopsInPolygon(polygon)
+                  return ResponseEntity.ok(coffeeShops)
               }
           
-              var signedArea = 0.0
-              var centroidX = 0.0
-              var centroidY = 0.0
-          
-              for (i in 0 until n) {
-                  val x0 = vertices[i].x
-                  val y0 = vertices[i].y
-                  val x1 = vertices[(i + 1) % n].x
-                  val y1 = vertices[(i + 1) % n].y
-          
-                  val a = x0 * y1 - x1 * y0
-                  signedArea += a
-                  centroidX += (x0 + x1) * a
-                  centroidY += (y0 + y1) * a
+              @ExceptionHandler(Exception::class)
+              fun handleException(ex: Exception): ResponseEntity&lt;String&gt; {
+                  return ResponseEntity.status(500).body(ex.message)
               }
-          
-              signedArea *= 0.5
-              if (signedArea == 0.0) {
-                  throw IllegalArgumentException(&quot;多角形の面積がゼロです&quot;)
-              }
-          
-              centroidX /= (6.0 * signedArea)
-              centroidY /= (6.0 * signedArea)
-          
-              return Point(centroidX, centroidY)
-          }
-          
-          fun main() {
-              val vertices = listOf(
-                  Point(0.0, 0.0),
-                  Point(4.0, 0.0),
-                  Point(4.0, 3.0),
-                  Point(0.0, 3.0)
-              )
-          
-              val centroid = calculatePolygonCentroid(vertices)
-              println(&quot;重心の座標: (${centroid.x}, ${centroid.y})&quot;)
           }
           </code></pre>
+          <h1>service</h1>
+          <pre><code>package com.example.coffeeshop.service
+
+            import com.example.coffeeshop.model.CoffeeShop
+            import com.example.coffeeshop.model.Point
+            import com.example.coffeeshop.model.Polygon
+            import com.example.coffeeshop.util.GeometryUtil
+            import org.springframework.beans.factory.annotation.Value
+            import org.springframework.stereotype.Service
+            import org.springframework.web.client.RestTemplate
+            import org.springframework.web.util.UriComponentsBuilder
+            
+            @Service
+            class CoffeeShopService {
+            
+                @Value(&quot;\${google.places.api.key}&quot;)
+                private lateinit var apiKey: String
+            
+                private val restTemplate = RestTemplate()
+            
+                fun findCoffeeShopsInPolygon(polygon: Polygon): List&lt;CoffeeShop&gt; {
+                    val (center, radius) = GeometryUtil.minEnclosingCircle(polygon.points)
+                    val maxRadius = 50000.0 // 最大半径50,000メートル
+                    val queryRadius = minOf(radius, maxRadius)
+                    val coffeeShops = queryGooglePlaces(center, queryRadius)
+                    return coffeeShops.filter { shop -&gt;
+                        GeometryUtil.isPointInPolygon(shop.location, polygon.points)
+                    }
+                }
+            
+                private fun queryGooglePlaces(center: Point, radius: Double): List&lt;CoffeeShop&gt; {
+                    var url = UriComponentsBuilder.fromHttpUrl(&quot;https://maps.googleapis.com/maps/api/place/nearbysearch/json&quot;)
+                        .queryParam(&quot;location&quot;, &quot;${center.latitude},${center.longitude}&quot;)
+                        .queryParam(&quot;radius&quot;, radius.toInt())
+                        .queryParam(&quot;type&quot;, &quot;cafe&quot;)
+                        .queryParam(&quot;keyword&quot;, &quot;coffee&quot;)
+                        .queryParam(&quot;key&quot;, apiKey)
+                        .build()
+                        .toUriString()
+            
+                    val coffeeShops = mutableListOf&lt;CoffeeShop&gt;()
+                    var nextPageToken: String? = null
+            
+                    do {
+                        if (nextPageToken != null) {
+                            Thread.sleep(2000) // 次のページトークンが有効になるまで待機
+                            url = UriComponentsBuilder.fromHttpUrl(&quot;https://maps.googleapis.com/maps/api/place/nearbysearch/json&quot;)
+                                .queryParam(&quot;pagetoken&quot;, nextPageToken)
+                                .queryParam(&quot;key&quot;, apiKey)
+                                .build()
+                                .toUriString()
+                        }
+            
+                        val response = restTemplate.getForObject(url, Map::class.java)
+                        val status = response?.get(&quot;status&quot;) as String
+            
+                        if (status != &quot;OK&quot; &amp;&amp; status != &quot;ZERO_RESULTS&quot;) {
+                            throw RuntimeException(&quot;Google Places APIエラー: $status&quot;)
+                        }
+            
+                        val results = response[&quot;results&quot;] as List&lt;Map&lt;String, Any&gt;&gt;?
+                        results?.let {
+                            coffeeShops.addAll(it.map { result -&gt;
+                                val geometry = result[&quot;geometry&quot;] as Map&lt;String, Any&gt;
+                                val location = geometry[&quot;location&quot;] as Map&lt;String, Any&gt;
+                                CoffeeShop(
+                                    name = result[&quot;name&quot;] as String,
+                                    address = result[&quot;vicinity&quot;] as String,
+                                    location = Point(
+                                        latitude = location[&quot;lat&quot;] as Double,
+                                        longitude = location[&quot;lng&quot;] as Double
+                                    ),
+                                    placeId = result[&quot;place_id&quot;] as String
+                                )
+                            })
+                        }
+            
+                        nextPageToken = response[&quot;next_page_token&quot;] as String?
+                    } while (nextPageToken != null)
+            
+                    return coffeeShops
+                }
+            }
+            </code></pre>
+            <h1>util</h1>
+            <pre><code>package com.example.coffeeshop.util
+
+              import com.example.coffeeshop.model.Point
+              import kotlin.math.*
+              
+              object GeometryUtil {
+              
+                  // 最小外接円を計算
+                  fun minEnclosingCircle(points: List&lt;Point&gt;): Pair&lt;Point, Double&gt; {
+                      val avgLat = points.map { it.latitude }.average()
+                      val avgLng = points.map { it.longitude }.average()
+                      val center = Point(avgLat, avgLng)
+                      val radius = points.maxOf { distanceBetween(center, it) }
+                      return Pair(center, radius)
+                  }
+              
+                  // 点がポリゴン内にあるか判定
+                  fun isPointInPolygon(point: Point, polygon: List&lt;Point&gt;): Boolean {
+                      var intersections = 0
+                      val n = polygon.size
+                      for (i in 0 until n) {
+                          val p1 = polygon[i]
+                          val p2 = polygon[(i + 1) % n]
+                          if (rayIntersectsSegment(point, p1, p2)) {
+                              intersections++
+                          }
+                      }
+                      return (intersections % 2) == 1
+                  }
+              
+                  private fun rayIntersectsSegment(p: Point, a: Point, b: Point): Boolean {
+                      val px = p.longitude
+                      val py = p.latitude
+                      val ax = a.longitude
+                      val ay = a.latitude
+                      val bx = b.longitude
+                      val by = b.latitude
+              
+                      if (ay &gt; by) {
+                          return rayIntersectsSegment(p, b, a)
+                      }
+                      if (py == ay || py == by) {
+                          val pyAdjusted = py + 0.00000001
+                          return rayIntersectsSegment(Point(pyAdjusted, px), a, b)
+                      }
+                      if (py &lt; ay || py &gt; by) {
+                          return false
+                      }
+                      if (px &gt;= maxOf(ax, bx)) {
+                          return false
+                      }
+                      val m = (bx - ax) / (by - ay)
+                      val x = m * (py - ay) + ax
+                      return px &lt; x
+                  }
+              
+                  private fun distanceBetween(p1: Point, p2: Point): Double {
+                      val R = 6371000.0 // 地球の半径（メートル）
+                      val dLat = Math.toRadians(p2.latitude - p1.latitude)
+                      val dLon = Math.toRadians(p2.longitude - p1.longitude)
+                      val a = sin(dLat / 2).pow(2) +
+                              cos(Math.toRadians(p1.latitude)) * cos(Math.toRadians(p2.latitude)) *
+                              sin(dLon / 2).pow(2)
+                      val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+                      return R * c // 距離（メートル）
+                  }
+              }
+              </code></pre>
           <p>https://mathworld.wolfram.com/PolygonCentroid.html</p>
       </div>
     </section>
